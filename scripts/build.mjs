@@ -1,0 +1,15 @@
+import {build} from 'esbuild';
+import {execFileSync} from 'node:child_process';
+import {readFileSync,writeFileSync,mkdirSync,copyFileSync,cpSync,existsSync} from 'node:fs';
+mkdirSync('dist/server',{recursive:true});mkdirSync('dist/.openai',{recursive:true});
+await build({entryPoints:['src/ui/main.tsx'],bundle:true,minify:true,format:'iife',outfile:'dist/client.js',define:{'process.env.NODE_ENV':'"production"'},target:'es2022'});
+const js=readFileSync('dist/client.js','utf8').replaceAll('</script','<\\/script');const css=readFileSync('src/ui/style.css','utf8');
+const html=`<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#163d32"><meta name="description" content="ProcurePilot — explainable purchasing decisions for restaurants."><title>ProcurePilot · Purchasing, with perspective</title><style>${css}</style></head><body><div id="root"></div><script>${js}</script></body></html>`;
+writeFileSync('dist/client.html',html);
+execFileSync('tar',['-czf','dist/source.tar.gz','--exclude=node_modules','--exclude=dist','--exclude=.git','--exclude=.local','--exclude=.env','--exclude=.dev.vars','--exclude=outputs','src','server','scripts','tests','db','drizzle','package.json','package-lock.json','tsconfig.json','drizzle.config.ts','README.md','IMPLEMENTATION.md','.env.example','.gitignore','.openai/hosting.json']);
+writeFileSync('dist/source.b64',readFileSync('dist/source.tar.gz').toString('base64'));
+await build({entryPoints:['server/worker.ts'],bundle:true,minify:true,format:'esm',platform:'browser',target:'es2022',outfile:'dist/server/index.js',loader:{'.html':'text','.b64':'text'},plugins:[{name:'disable-external-solvers',setup(b){b.onResolve({filter:/^(fs|child_process)$/},a=>({path:a.path,namespace:'unsupported'}));b.onLoad({filter:/.*/,namespace:'unsupported'},()=>({contents:'export const readFile=()=>{throw new Error("External solver adapters are disabled")}; export const execFile=readFile;',loader:'js'}));}}]});
+copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');
+writeFileSync('dist/server/wrangler.json',JSON.stringify({name:'procurepilot',main:'index.js',compatibility_date:'2026-11-01',d1_databases:[{binding:'DB',database_name:'procurepilot',database_id:'00000000-0000-0000-0000-000000000000',migrations_dir:'../../drizzle'}]},null,2));
+if(existsSync('drizzle'))cpSync('drizzle','dist/drizzle',{recursive:true});
+console.log('Built React client, Worker API, hosting manifest and database migrations.');
